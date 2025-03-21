@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Call of Duty-like Game</title>
+  <title>Call of Duty-like Game with Starry Sky</title>
   <style>
     body { 
       margin: 0; 
-      overflow: hidden; /* Prevents scrolling */
+      overflow: hidden; 
+      background-color: black; /* Black background for night sky */
     }
     #blocker {
       position: absolute;
@@ -31,7 +32,7 @@
       height: 20px;
       background: white;
       transform: translate(-50%, -50%);
-      pointer-events: none; /* Prevents interference with clicks */
+      pointer-events: none;
     }
     #crosshair::before {
       content: '';
@@ -66,7 +67,7 @@
     document.body.appendChild(renderer.domElement);
 
     // Add lighting
-    const ambientLight = new THREE.AmbientLight(0x404040); // Soft ambient light
+    const ambientLight = new THREE.AmbientLight(0x404040);
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
     directionalLight.position.set(1, 1, 1).normalize();
@@ -75,12 +76,26 @@
     // Add ground plane
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(1000, 1000),
-      new THREE.MeshBasicMaterial({ color: 0x00ff00 }) // Green ground
+      new THREE.MeshBasicMaterial({ color: 0x00ff00 })
     );
-    ground.rotation.x = -Math.PI / 2; // Rotate to lie flat
+    ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    // Hardcoded level data (can be replaced with d3.json if using a file)
+    // Create star field
+    const starsGeometry = new THREE.BufferGeometry();
+    const starsMaterial = new THREE.PointsMaterial({ color: 0xFFFFFF, size: 0.1 });
+    const starsVertices = [];
+    for (let i = 0; i < 10000; i++) {
+      const x = THREE.MathUtils.randFloatSpread(2000);
+      const y = THREE.MathUtils.randFloatSpread(2000);
+      const z = THREE.MathUtils.randFloatSpread(2000);
+      starsVertices.push(x, y, z);
+    }
+    starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+    const stars = new THREE.Points(starsGeometry, starsMaterial);
+    scene.add(stars);
+
+    // Hardcoded level data
     const levelData = {
       obstacles: [
         { x: 10, y: 0, z: 10, width: 5, height: 5, depth: 5 },
@@ -92,7 +107,6 @@
       ]
     };
 
-    // Arrays to hold game objects
     const obstacles = [];
     const enemies = [];
 
@@ -102,7 +116,7 @@
         new THREE.BoxGeometry(d.width, d.height, d.depth),
         new THREE.MeshBasicMaterial({ color: 0x808080 })
       );
-      obstacle.position.set(d.x, d.y + d.height / 2, d.z); // Center vertically above ground
+      obstacle.position.set(d.x, d.y + d.height / 2, d.z);
       scene.add(obstacle);
       obstacles.push(obstacle);
     });
@@ -157,7 +171,7 @@
     document.addEventListener('click', () => {
       if (controls.isLocked) {
         const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera); // Center of screen
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
         const intersects = raycaster.intersectObjects(enemies);
         if (intersects.length > 0) {
           const enemy = intersects[0].object;
@@ -179,11 +193,11 @@
       .style("left", "0")
       .style("pointer-events", "none");
 
-    let health = 100;
+    let health = 1000000;
     const healthBar = svg.append("rect")
       .attr("x", 10)
       .attr("y", window.innerHeight - 30)
-      .attr("width", health * 2) // Scale for visibility
+      .attr("width", health * 2)
       .attr("height", 20)
       .attr("fill", "green");
 
@@ -218,9 +232,9 @@
           const direction = new THREE.Vector3()
             .subVectors(camera.position, enemy.position)
             .normalize();
-          enemy.position.add(direction.multiplyScalar(0.05)); // Move toward player
+          enemy.position.add(direction.multiplyScalar(0.05));
           const distance = enemy.position.distanceTo(camera.position);
-          if (distance < 1) { // Collision with player
+          if (distance < 1) {
             health -= 1;
             updateHUD();
             if (health <= 0) {
@@ -228,7 +242,6 @@
               health = 100;
               score = 0;
               updateHUD();
-              // Optionally, reset enemies here
             }
           }
         });
