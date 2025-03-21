@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Call of Duty-like Game with Starry Sky</title>
+  <title>Call of Duty-like Game</title>
   <style>
     body { 
       margin: 0; 
       overflow: hidden; 
-      background-color: black; /* Black background for night sky */
+      background-color: black; 
     }
     #blocker {
       position: absolute;
@@ -81,20 +81,6 @@
     ground.rotation.x = -Math.PI / 2;
     scene.add(ground);
 
-    // Create star field
-    const starsGeometry = new THREE.BufferGeometry();
-    const starsMaterial = new THREE.PointsMaterial({ color: 0xFFFFFF, size: 0.1 });
-    const starsVertices = [];
-    for (let i = 0; i < 10000; i++) {
-      const x = THREE.MathUtils.randFloatSpread(2000);
-      const y = THREE.MathUtils.randFloatSpread(2000);
-      const z = THREE.MathUtils.randFloatSpread(2000);
-      starsVertices.push(x, y, z);
-    }
-    starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
-    const stars = new THREE.Points(starsGeometry, starsMaterial);
-    scene.add(stars);
-
     // Hardcoded level data
     const levelData = {
       obstacles: [
@@ -102,8 +88,8 @@
         { x: -10, y: 0, z: -10, width: 5, height: 5, depth: 5 }
       ],
       enemies: [
-        { x: 15, y: 1, z: 15, radius: 1 },
-        { x: -15, y: 1, z: -15, radius: 1 }
+        { x: 15, y: 1, z: 15 },
+        { x: -15, y: 1, z: -15 }
       ]
     };
 
@@ -121,15 +107,20 @@
       obstacles.push(obstacle);
     });
 
-    // Create enemies (red spheres)
-    levelData.enemies.forEach(d => {
-      const enemy = new THREE.Mesh(
-        new THREE.SphereGeometry(d.radius),
-        new THREE.MeshBasicMaterial({ color: 0xff0000 })
-      );
-      enemy.position.set(d.x, d.y, d.z);
-      scene.add(enemy);
-      enemies.push(enemy);
+    // Load enemy image and create sprites
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load('images/enemy.webp', (enemyTexture) => {
+      levelData.enemies.forEach(d => {
+        const enemyMaterial = new THREE.SpriteMaterial({
+          map: enemyTexture,
+          transparent: true
+        });
+        const enemy = new THREE.Sprite(enemyMaterial);
+        enemy.scale.set(2, 2, 1); // Adjust size as needed
+        enemy.position.set(d.x, d.y, d.z);
+        scene.add(enemy);
+        enemies.push(enemy);
+      });
     });
 
     // Set up player controls with PointerLockControls
@@ -138,7 +129,12 @@
 
     // Handle pointer lock
     const blocker = document.getElementById('blocker');
-    blocker.addEventListener('click', () => controls.lock());
+    blocker.addEventListener('click', () => {
+      controls.lock();
+      if (!audioContext) {
+        initAudio(); // Initialize audio on first click
+      }
+    });
     controls.addEventListener('lock', () => blocker.style.display = 'none');
     controls.addEventListener('unlock', () => blocker.style.display = 'block');
 
@@ -166,10 +162,69 @@
       }
     });
 
-    // Shooting mechanics
+    // Audio setup
+    let audioContext;
+    let backgroundBuffer, gunshotBuffer;
+    let backgroundSource;
+    let gainNode;
+
+    // Initialize audio on first user interaction
+    function initAudio() {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioContext.resume().then(() => {
+        // Load background music
+        fetch('background.mp3')
+          .then(response => response.arrayBuffer())
+          .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+          .then(buffer => {
+            backgroundBuffer = buffer;
+            playBackgroundMusic();
+          })
+          .catch(error => console.error('Error loading background music:', error));
+
+        // Load gunshot sound
+        fetch('gun-shots.mp3')
+          .then(response => response.arrayBuffer())
+          .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+          .then(buffer => {
+            gunshotBuffer = buffer;
+          })
+          .catch(error => console.error('Error loading gunshot sound:', error));
+      });
+    }
+
+    // Play the background music
+    function playBackgroundMusic() {
+      if (audioContext && backgroundBuffer) {
+        backgroundSource = audioContext.createBufferSource();
+        backgroundSource.buffer = backgroundBuffer;
+        backgroundSource.loop = true; // Loop the background music
+
+        // Create a gain node to control volume
+        gainNode = audioContext.createGain();
+        gainNode.gain.value = 0.3; // Set volume to 30%
+        backgroundSource.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        backgroundSource.start(0);
+      }
+    }
+
+    // Play the gunshot sound
+    function playGunshot() {
+      if (audioContext && gunshotBuffer) {
+        const source = audioContext.createBufferSource();
+        source.buffer = gunshotBuffer;
+        source.connect(audioContext.destination);
+        source.start(0);
+      }
+    }
+
+    // Shooting mechanics with sound
     let score = 0;
     document.addEventListener('click', () => {
       if (controls.isLocked) {
+        playGunshot(); // Play gunshot sound on every shot
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
         const intersects = raycaster.intersectObjects(enemies);
@@ -193,7 +248,7 @@
       .style("left", "0")
       .style("pointer-events", "none");
 
-    let health = 1000000;
+    let health = 100;
     const healthBar = svg.append("rect")
       .attr("x", 10)
       .attr("y", window.innerHeight - 30)
