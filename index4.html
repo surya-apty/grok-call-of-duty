@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Call of Duty-like Game</title>
+  <style>
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background-color: black; 
+    }
+    #blocker {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #instructions {
+      color: white;
+      font-size: 24px;
+      cursor: pointer;
+    }
+    #crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 2px;
+      height: 20px;
+      background: white;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    #crosshair::before {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 2px;
+      background: white;
+      top: 9px;
+      left: -9px;
+    }
+  </style>
+</head>
+<body>
+  <div id="blocker">
+    <div id="instructions">Click to play</div>
+  </div>
+  <div id="crosshair"></div>
+
+  <!-- Load Three.js and D3.js libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+
+  <script>
+    // Initialize Three.js components
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1, 0); // Player starts at y=1 (ground level + height)
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Add lighting
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    directionalLight.position.set(1, 1, 1).normalize();
+    scene.add(directionalLight);
+
+    // Add ground plane
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(1000, 1000),
+      new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+
+    // Hardcoded level data
+    const levelData = {
+      obstacles: [
+        { x: 10, y: 0, z: 10, width: 5, height: 5, depth: 5 },
+        { x: -10, y: 0, z: -10, width: 5, height: 5, depth: 5 }
+      ],
+      enemies: [
+        { x: 15, y: 1, z: 15 },
+        { x: -15, y: 1, z: -15 }
+      ]
+    };
+
+    const obstacles = [];
+    const enemies = [];
+
+    // Create obstacles (gray cubes)
+    levelData.obstacles.forEach(d => {
+      const obstacle = new THREE.Mesh(
+        new THREE.BoxGeometry(d.width, d.height, d.depth),
+        new THREE.MeshBasicMaterial({ color: 0x808080 })
+      );
+      obstacle.position.set(d.x, d.y + d.height / 2, d.z);
+      scene.add(obstacle);
+      obstacles.push(obstacle);
+    });
+
+    // Load enemy image and create sprites
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load('images/enemy.webp', (enemyTexture) => {
+      levelData.enemies.forEach(d => {
+        const enemyMaterial = new THREE.SpriteMaterial({
+          map: enemyTexture,
+          transparent: true
+        });
+        const enemy = new THREE.Sprite(enemyMaterial);
+        enemy.scale.set(2, 2, 1); // Adjust size as needed
+        enemy.position.set(d.x, d.y, d.z);
+        scene.add(enemy);
+        enemies.push(enemy);
+      });
+    });
+
+    // Set up player controls with PointerLockControls
+    const controls = new THREE.PointerLockControls(camera, document.body);
+    scene.add(controls.getObject());
+
+    // Handle pointer lock
+    const blocker = document.getElementById('blocker');
+    blocker.addEventListener('click', () => {
+      controls.lock();
+      if (!audioContext) {
+        initAudio(); // Initialize audio on first click
+      }
+    });
+    controls.addEventListener('lock', () => blocker.style.display = 'none');
+    controls.addEventListener('unlock', () => blocker.style.display = 'block');
+
+    // Player movement variables
+    let moveForward = false,
+        moveBackward = false,
+        moveLeft = false,
+        moveRight = false;
+
+    // Keyboard event listeners
+    document.addEventListener('keydown', (event) => {
+      switch (event.code) {
+        case 'KeyW': moveForward = true; break;
+        case 'KeyS': moveBackward = true; break;
+        case 'KeyA': moveLeft = true; break;
+        case 'KeyD': moveRight = true; break;
+      }
+    });
+    document.addEventListener('keyup', (event) => {
+      switch (event.code) {
+        case 'KeyW': moveForward = false; break;
+        case 'KeyS': moveBackward = false; break;
+        case 'KeyA': moveLeft = false; break;
+        case 'KeyD': moveRight = false; break;
+      }
+    });
+
+    // Audio setup
+    let audioContext;
+    let backgroundBuffer, gunshotBuffer;
+    let backgroundSource;
+    let gainNode;
+
+    // Initialize audio on first user interaction
+    function initAudio() {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioContext.resume().then(() => {
+        // Load background music
+        fetch('background.mp3')
+          .then(response => response.arrayBuffer())
+          .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+          .then(buffer => {
+            backgroundBuffer = buffer;
+            playBackgroundMusic();
+          })
+          .catch(error => console.error('Error loading background music:', error));
+
+        // Load gunshot sound
+        fetch('gun-shots.mp3')
+          .then(response => response.arrayBuffer())
+          .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+          .then(buffer => {
+            gunshotBuffer = buffer;
+          })
+          .catch(error => console.error('Error loading gunshot sound:', error));
+      });
+    }
+
+    // Play the background music
+    function playBackgroundMusic() {
+      if (audioContext && backgroundBuffer) {
+        backgroundSource = audioContext.createBufferSource();
+        backgroundSource.buffer = backgroundBuffer;
+        backgroundSource.loop = true; // Loop the background music
+
+        // Create a gain node to control volume
+        gainNode = audioContext.createGain();
+        gainNode.gain.value = 0.3; // Set volume to 30%
+        backgroundSource.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        backgroundSource.start(0);
+      }
+    }
+
+    // Play the gunshot sound
+    function playGunshot() {
+      if (audioContext && gunshotBuffer) {
+        const source = audioContext.createBufferSource();
+        source.buffer = gunshotBuffer;
+        source.connect(audioContext.destination);
+        source.start(0);
+      }
+    }
+
+    // Shooting mechanics with sound
+    let score = 0;
+    document.addEventListener('click', () => {
+      if (controls.isLocked) {
+        playGunshot(); // Play gunshot sound on every shot
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+        const intersects = raycaster.intersectObjects(enemies);
+        if (intersects.length > 0) {
+          const enemy = intersects[0].object;
+          scene.remove(enemy);
+          enemies.splice(enemies.indexOf(enemy), 1);
+          score += 10;
+          updateHUD();
+        }
+      }
+    });
+
+    // HUD setup with D3.js
+    const svg = d3.select("body")
+      .append("svg")
+      .attr("width", window.innerWidth)
+      .attr("height", window.innerHeight)
+      .style("position", "absolute")
+      .style("top", "0")
+      .style("left", "0")
+      .style("pointer-events", "none");
+
+    let health = 100;
+    const healthBar = svg.append("rect")
+      .attr("x", 10)
+      .attr("y", window.innerHeight - 30)
+      .attr("width", health * 2)
+      .attr("height", 20)
+      .attr("fill", "green");
+
+    const scoreText = svg.append("text")
+      .attr("x", window.innerWidth - 100)
+      .attr("y", window.innerHeight - 20)
+      .text(`Score: ${score}`);
+
+    // Function to update HUD
+    function updateHUD() {
+      healthBar.transition().duration(200)
+        .attr("width", health * 2)
+        .attr("fill", health > 50 ? "green" : "red");
+      scoreText.text(`Score: ${score}`);
+    }
+
+    // Game loop
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (controls.isLocked) {
+        // Player movement
+        const speed = 0.1;
+        if (moveForward) camera.translateZ(-speed);
+        if (moveBackward) camera.translateZ(speed);
+        if (moveLeft) camera.translateX(-speed);
+        if (moveRight) camera.translateX(speed);
+        camera.position.y = 1; // Keep player on ground
+
+        // Update enemies
+        enemies.forEach(enemy => {
+          const direction = new THREE.Vector3()
+            .subVectors(camera.position, enemy.position)
+            .normalize();
+          enemy.position.add(direction.multiplyScalar(0.05));
+          const distance = enemy.position.distanceTo(camera.position);
+          if (distance < 1) {
+            health -= 1;
+            updateHUD();
+            if (health <= 0) {
+              alert("Game Over");
+              health = 100;
+              score = 0;
+              updateHUD();
+            }
+          }
+        });
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      svg.attr("width", window.innerWidth)
+         .attr("height", window.innerHeight);
+      healthBar.attr("y", window.innerHeight - 30);
+      scoreText.attr("x", window.innerWidth - 100)
+               .attr("y", window.innerHeight - 20);
+    });
+  </script>
+</body>
+</html>
